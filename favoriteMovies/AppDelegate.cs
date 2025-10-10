@@ -10,6 +10,7 @@ using Firebase.Analytics;
 using Google.MobileAds;
 
 using System;
+using System.Threading.Tasks;
 using Firebase.CloudMessaging;
 using UserNotifications;
 using AlertView;
@@ -78,12 +79,23 @@ namespace FavoriteMovies
       
 			Window.MakeKeyAndVisible ();
 
-			Messaging.SharedInstance.Connect (error => {
-				if (error != null) 
-                {
-                    Console.WriteLine ("Error connecting to FCM:{0}",error.Description);
-				} else {
-					Console.WriteLine ("Connected to FCM!");
+			// Firebase Cloud Messaging connection with timeout
+			Task.Run(async () => {
+				try 
+				{
+					await Task.Delay(100); // Small delay to let UI initialize
+					Messaging.SharedInstance.Connect (error => {
+						if (error != null) 
+						{
+							Console.WriteLine ("Error connecting to FCM:{0}", error.Description);
+						} else {
+							Console.WriteLine ("Connected to FCM!");
+						}
+					});
+				}
+				catch (Exception ex)
+				{
+					Console.WriteLine($"FCM Connection Error: {ex.Message}");
 				}
 			});
 			// check for a local notification
@@ -122,27 +134,43 @@ namespace FavoriteMovies
 			//}
 			//pushmanager.StartLocationTracking ();
 			//pushmanager.RegisterForPushNotifications ();
-			// Register your app for remote notifications.
-            if (UIDevice.CurrentDevice.CheckSystemVersion (10, 0)) {
-					// iOS 10 or later
-					var authOptions = UNAuthorizationOptions.Alert | UNAuthorizationOptions.Badge | UNAuthorizationOptions.Sound;
-					UNUserNotificationCenter.Current.RequestAuthorization (authOptions, (granted, error) => {
-						Console.WriteLine (granted);
-					});
+			// Register your app for remote notifications with proper error handling
+			Task.Run(async () => {
+				try 
+				{
+					await Task.Delay(500); // Delay to let UI fully initialize
+					
+					if (UIDevice.CurrentDevice.CheckSystemVersion (10, 0)) {
+						// iOS 10 or later
+						var authOptions = UNAuthorizationOptions.Alert | UNAuthorizationOptions.Badge | UNAuthorizationOptions.Sound;
+						UNUserNotificationCenter.Current.RequestAuthorization (authOptions, (granted, error) => {
+							Console.WriteLine($"Notification authorization granted: {granted}");
+							if (error != null)
+							{
+								Console.WriteLine($"Notification authorization error: {error.Description}");
+							}
+						});
 
-					// For iOS 10 display notification (sent via APNS)
-					UNUserNotificationCenter.Current.Delegate = this;
+						// For iOS 10 display notification (sent via APNS)
+						UNUserNotificationCenter.Current.Delegate = this;
 
-					// For iOS 10 data message (sent via FCM)
-					Messaging.SharedInstance.RemoteMessageDelegate = this;
-				} else {
-					// iOS 9 or before
-					var allNotificationTypes = UIUserNotificationType.Alert | UIUserNotificationType.Badge | UIUserNotificationType.Sound;
-					var settings = UIUserNotificationSettings.GetSettingsForTypes (allNotificationTypes, null);
-					UIApplication.SharedApplication.RegisterUserNotificationSettings (settings);
+						// For iOS 10 data message (sent via FCM)
+						Messaging.SharedInstance.RemoteMessageDelegate = this;
+					} else {
+						// iOS 9 or before
+						var allNotificationTypes = UIUserNotificationType.Alert | UIUserNotificationType.Badge | UIUserNotificationType.Sound;
+						var settings = UIUserNotificationSettings.GetSettingsForTypes (allNotificationTypes, null);
+						UIApplication.SharedApplication.RegisterUserNotificationSettings (settings);
+					}
+
+					// Register for remote notifications
+					UIApplication.SharedApplication.RegisterForRemoteNotifications ();
 				}
-
-			UIApplication.SharedApplication.RegisterForRemoteNotifications ();
+				catch (Exception ex)
+				{
+					Console.WriteLine($"Notification registration error: {ex.Message}");
+				}
+			});
 		
 						// Code to start the Xamarin Test Cloud Agent
 			#if ENABLE_TEST_CLOUD

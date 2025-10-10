@@ -168,14 +168,43 @@ namespace FavoriteMovies
 		}
 		public static void getUser ()
 		{
+			// Initialize a default user first to prevent null reference exceptions
+			var currentUser = new User () { tilesize = 2, suggestmovies = true, darktheme = false };
+			ColorExtensions.CurrentUser = currentUser;
 			
-			using (var db = new SQLiteConnection (MovieService.Database)) {
-				var task = Task.Run (() => {
-					try {
-						// there is a sqllite bug here https://forums.xamarin.com/discussion/52822/sqlite-error-deleting-a-record-no-primary-keydb.Delete<Movie> (movieDetail);
-						var query = db.Query<User> ("SELECT * FROM [User]");
-						var currentUser =  new User () { tilesize = 2, suggestmovies = true, darktheme = false};
+			try {
+				using (var db = new SQLiteConnection (MovieService.Database)) {
+					// there is a sqllite bug here https://forums.xamarin.com/discussion/52822/sqlite-error-deleting-a-record-no-primary-keydb.Delete<Movie> (movieDetail);
+					var query = db.Query<User> ("SELECT * FROM [User]");
 
+					if (query.Count > 0) 
+					{
+						currentUser.username = query [0].username;
+						currentUser.email = query [0].email;
+						currentUser.Id = query [0].Id;
+						currentUser.city = query [0].city;
+						currentUser.state = query [0].state;
+						currentUser.country = query [0].country;
+						currentUser.zip = query [0].zip;
+						currentUser.lastname = query [0].lastname;
+						currentUser.firstname = query [0].firstname;
+						currentUser.phone =  query [0].phone;
+						currentUser.suggestmovies = query[0].suggestmovies;
+						currentUser.darktheme = query[0].darktheme;
+						currentUser.tilesize = query[0].tilesize;
+						currentUser.password = query [0].password;
+						currentUser.removeAds = query[0].removeAds;
+					}
+					ColorExtensions.CurrentUser = currentUser;
+					//favoriteViewController.CollectionView.ReloadData ();
+				}
+			} catch (SQLiteException e) 
+			{
+				Debug.WriteLine (e.Message);
+				try {
+					using (var conn = new SQLite.SQLiteConnection (MovieService.Database)) {
+						conn.CreateTable<User> ();
+						var query = conn.Query<User> ("SELECT * FROM [User]");
 						if (query.Count > 0) 
 						{
 							currentUser.username = query [0].username;
@@ -195,44 +224,17 @@ namespace FavoriteMovies
 							currentUser.removeAds = query[0].removeAds;
 						}
 						ColorExtensions.CurrentUser = currentUser;
-						//favoriteViewController.CollectionView.ReloadData ();
-					} catch (SQLiteException e) 
-					{
-						Debug.WriteLine (e.Message);
-						using (var conn = new SQLite.SQLiteConnection (MovieService.Database)) {
-							conn.CreateTable<User> ();
-							var query = db.Query<User> ("SELECT * FROM [User]");
-							var currentUser = new User () { tilesize = 2, suggestmovies = true, darktheme = false};
-							if (query.Count > 0) 
-							{
-								currentUser.username = query [0].username;
-								currentUser.email = query [0].email;
-								currentUser.Id = query [0].Id;
-								currentUser.city = query [0].city;
-								currentUser.state = query [0].state;
-								currentUser.country = query [0].country;
-								currentUser.zip = query [0].zip;
-								currentUser.lastname = query [0].lastname;
-								currentUser.firstname = query [0].firstname;
-								currentUser.phone =  query [0].phone;
-								currentUser.suggestmovies = query[0].suggestmovies;
-								currentUser.darktheme = query[0].darktheme;
-								currentUser.tilesize = query[0].tilesize;
-								currentUser.password = query [0].password;
-								currentUser.removeAds = query[0].removeAds;
-							}
-							ColorExtensions.CurrentUser = currentUser;
-						}
-
 					}
-					catch (Exception ex)
-					{
-						Debug.Write (ex.Message);
-					}
-				});
-				task.Wait ();
+				} catch (Exception ex2) {
+					Debug.WriteLine ("Secondary exception in getUser: " + ex2.Message);
+				}
 			}
-
+			catch (Exception ex)
+			{
+				Debug.WriteLine ("Exception in getUser: " + ex.Message);
+				// Ensure we always have a valid user object
+				ColorExtensions.CurrentUser = currentUser;
+			}
 		}
 
         public override void ViewWillAppear (bool animated)
@@ -641,11 +643,29 @@ namespace FavoriteMovies
 			//searchResultsController.TableView.WeakDelegate = this;
 			searchController.SearchBar.WeakDelegate = searchResultsController;
 
-			//((UITextField)searchController.SearchBar.ValueForKey (new NSString ("_searchField"))).TextColor = UIColor.White;
-			((UITextField)searchController.SearchBar.ValueForKey (new NSString ("_searchField"))).Font = UIFont.FromName (ColorExtensions.CONTENT_FONT, ColorExtensions.CAST_FONT_SIZE);
-			((UITextField)searchController.SearchBar.ValueForKey (new NSString ("_searchField"))).BackgroundColor = UIColor.White;
-			((UITextField)searchController.SearchBar.ValueForKey (new NSString ("_searchField"))).ResignFirstResponder ();
-			((UITextField)searchController.SearchBar.ValueForKey (new NSString ("_searchField"))).AttributedPlaceholder=new NSAttributedString("Add Your Movies", null, UIColor.Clear.FromHexString (ColorExtensions.NAV_BAR_COLOR, BackGroundColorAlpha));
+			// Note: Accessing UISearchBar's _searchField is prohibited in newer iOS versions
+			// Using App Appearance API instead for styling
+			if (UIDevice.CurrentDevice.CheckSystemVersion(13, 0))
+			{
+				// iOS 13+ styling approach
+				searchController.SearchBar.SearchTextField.Font = UIFont.FromName (ColorExtensions.CONTENT_FONT, ColorExtensions.CAST_FONT_SIZE);
+				searchController.SearchBar.SearchTextField.BackgroundColor = UIColor.White;
+				searchController.SearchBar.SearchTextField.AttributedPlaceholder = new NSAttributedString("Add Your Movies", null, UIColor.Clear.FromHexString (ColorExtensions.NAV_BAR_COLOR, BackGroundColorAlpha));
+			}
+			else
+			{
+				// Fallback for older iOS versions
+				try 
+				{
+					((UITextField)searchController.SearchBar.ValueForKey (new NSString ("_searchField"))).Font = UIFont.FromName (ColorExtensions.CONTENT_FONT, ColorExtensions.CAST_FONT_SIZE);
+					((UITextField)searchController.SearchBar.ValueForKey (new NSString ("_searchField"))).BackgroundColor = UIColor.White;
+					((UITextField)searchController.SearchBar.ValueForKey (new NSString ("_searchField"))).AttributedPlaceholder = new NSAttributedString("Add Your Movies", null, UIColor.Clear.FromHexString (ColorExtensions.NAV_BAR_COLOR, BackGroundColorAlpha));
+				}
+				catch (Exception ex)
+				{
+					Console.WriteLine($"Error styling search bar: {ex.Message}");
+				}
+			}
 			//the search bar is contained in the navigation bar, so it should be visible
 			searchController.HidesNavigationBarDuringPresentation = false;
 

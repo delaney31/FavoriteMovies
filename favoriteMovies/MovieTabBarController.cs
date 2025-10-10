@@ -113,7 +113,22 @@ namespace FavoriteMovies
 		[Export ("scrollViewWillEndDragging:withVelocity:targetContentOffset:")]
 		public void WillEndDragging (UIScrollView scrollView, CGPoint velocity, ref CGPoint targetContentOffset)
 		{
-			((UITextField)searchController.SearchBar.ValueForKey (new NSString ("_searchField"))).ResignFirstResponder ();
+			try 
+			{
+				if (UIDevice.CurrentDevice.CheckSystemVersion(13, 0))
+				{
+					searchController.SearchBar.SearchTextField.ResignFirstResponder();
+				}
+				else
+				{
+					((UITextField)searchController.SearchBar.ValueForKey (new NSString ("_searchField"))).ResignFirstResponder ();
+				}
+			}
+			catch (Exception ex)
+			{
+				Console.WriteLine($"Error resigning first responder: {ex.Message}");
+				searchController.SearchBar.ResignFirstResponder();
+			}
 		}
 
 		[Export ("searchBarCancelButtonClicked:")]

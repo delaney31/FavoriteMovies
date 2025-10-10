@@ -67,12 +67,29 @@ namespace FavoriteMovies
 		
 			//searchResultsController.TableView.WeakDelegate = this;
 			searchController.SearchBar.WeakDelegate = searchResultsController;
-			//((UITextField)searchController.SearchBar.ValueForKey (new NSString ("_searchField"))).TextColor = UIColor.White;
-			//((UITextField)searchController.SearchBar.ValueForKey (new NSString ("_searchField"))).TextColor = UIColor.Clear.FromHexString (ColorExtensions.TAB_BACKGROUND_COLOR, 1.0f);
-			((UITextField)searchController.SearchBar.ValueForKey (new NSString ("_searchField"))).Font = UIFont.FromName (ColorExtensions.CONTENT_FONT, ColorExtensions.CAST_FONT_SIZE);
-			((UITextField)searchController.SearchBar.ValueForKey (new NSString ("_searchField"))).BackgroundColor = UIColor.White;
-			((UITextField)searchController.SearchBar.ValueForKey (new NSString ("_searchField"))).ResignFirstResponder ();
-			((UITextField)searchController.SearchBar.ValueForKey (new NSString ("_searchField"))).AttributedPlaceholder=new NSAttributedString ("Search", null, UIColor.Clear.FromHexString (ColorExtensions.NAV_BAR_COLOR, BackGroundColorAlpha));
+			// Note: Accessing UISearchBar's _searchField is prohibited in newer iOS versions
+			// Using App Appearance API instead for styling
+			if (UIDevice.CurrentDevice.CheckSystemVersion(13, 0))
+			{
+				// iOS 13+ styling approach
+				searchController.SearchBar.SearchTextField.Font = UIFont.FromName (ColorExtensions.CONTENT_FONT, ColorExtensions.CAST_FONT_SIZE);
+				searchController.SearchBar.SearchTextField.BackgroundColor = UIColor.White;
+				searchController.SearchBar.SearchTextField.AttributedPlaceholder = new NSAttributedString ("Search", null, UIColor.Clear.FromHexString (ColorExtensions.NAV_BAR_COLOR, BackGroundColorAlpha));
+			}
+			else
+			{
+				// Fallback for older iOS versions
+				try 
+				{
+					((UITextField)searchController.SearchBar.ValueForKey (new NSString ("_searchField"))).Font = UIFont.FromName (ColorExtensions.CONTENT_FONT, ColorExtensions.CAST_FONT_SIZE);
+					((UITextField)searchController.SearchBar.ValueForKey (new NSString ("_searchField"))).BackgroundColor = UIColor.White;
+					((UITextField)searchController.SearchBar.ValueForKey (new NSString ("_searchField"))).AttributedPlaceholder = new NSAttributedString ("Search", null, UIColor.Clear.FromHexString (ColorExtensions.NAV_BAR_COLOR, BackGroundColorAlpha));
+				}
+				catch (Exception ex)
+				{
+					Console.WriteLine($"Error styling search bar: {ex.Message}");
+				}
+			}
 			//the search bar is contained in the navigation bar, so it should be visible
 			searchController.HidesNavigationBarDuringPresentation = false;
 			//Set the search bar in the navigation bar
@@ -384,7 +401,22 @@ namespace FavoriteMovies
 		[Export ("scrollViewWillEndDragging:withVelocity:targetContentOffset:")]
 		public void WillEndDragging (UIScrollView scrollView, CGPoint velocity, ref CGPoint targetContentOffset)
 		{
-			((UITextField)searchController.SearchBar.ValueForKey (new NSString ("_searchField"))).ResignFirstResponder ();
+			try 
+			{
+				if (UIDevice.CurrentDevice.CheckSystemVersion(13, 0))
+				{
+					searchController.SearchBar.SearchTextField.ResignFirstResponder();
+				}
+				else
+				{
+					((UITextField)searchController.SearchBar.ValueForKey (new NSString ("_searchField"))).ResignFirstResponder ();
+				}
+			}
+			catch (Exception ex)
+			{
+				Console.WriteLine($"Error resigning first responder: {ex.Message}");
+				searchController.SearchBar.ResignFirstResponder();
+			}
 		}
 
 		[Export ("searchBarCancelButtonClicked:")]

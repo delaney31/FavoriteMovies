@@ -35,59 +35,55 @@ namespace FavoriteMovies
 
 		List<ContactCard> GetUserContactsAsync ()
 		{
-
-            var tcs = new TaskCompletionSource<bool> ();
 			// Define fields to be searched
 			var fetchKeys = new NSString [] { CNContactKey.GivenName, CNContactKey.FamilyName, CNContactKey.EmailAddresses, CNContactKey.ImageDataAvailable, CNContactKey.ThumbnailImageData };
 			List<ContactCard> result = new List<ContactCard> ();
-            CNContainer [] containers = null;
        
 			try 
              {
 				var store = new CNContactStore ();
 				NSError error = null;
-			    TimeSpan ts = TimeSpan.FromMilliseconds (1000);
-                Task t = Task.Run (async () => 
+			    CNContainer [] containers = store.GetContainers (null, out error);
+                
+                if (error != null)
                 {
-                    containers = store.GetContainers (null, out error);
-                });
-                if (t.Wait (ts)) 
+                    Console.WriteLine ("Error getting containers: " + error.LocalizedDescription);
+                    return result;
+                }
+                
+				foreach (var container in containers) 
                 {
+                    var fetchPredicate = CNContact.GetPredicateForContactsInContainer (container.Identifier);
+
+                    var containerResults = store.GetUnifiedContacts (fetchPredicate, fetchKeys, out error);
                     if (error != null)
-                        tcs.SetException (new Exception (error.LocalizedDescription));
-                    else 
                     {
-						tcs.SetResult (true); // The true is unused
-						foreach (var container in containers) 
-                        {
-                            var fetchPredicate = CNContact.GetPredicateForContactsInContainer (container.Identifier);
-
-                            var containerResults = store.GetUnifiedContacts (fetchPredicate, fetchKeys, out error);
-                            foreach (var contact in containerResults.OrderBy (x => x.GivenName)) 
-                            {
-                                if (contact.EmailAddresses.Count () > 0 && contact.GivenName.Length > 0) 
-                                {
-                                    var conCard = new ContactCard (UITableViewCellStyle.Default, cellIdentifier);
-                                    conCard.nameLabel.Text = contact.GivenName + " " + contact.FamilyName;
-                                    conCard.email = contact.EmailAddresses.FirstOrDefault ()?.Value;
-                                    if (contact.ImageDataAvailable)
-                                        conCard.profileImage.Image = UIImage.LoadFromData (contact.ThumbnailImageData);
-                                    else
-                                        conCard.profileImage.Image = UIImage.FromBundle ("1481507483_compose.png"); //default image
-                                    result.Add (conCard);
-
-                                 }
-                              }
-
-                           }
-                        }
+                        Console.WriteLine ("Error getting contacts: " + error.LocalizedDescription);
+                        continue;
                     }
-				} catch (Exception ex) {
-					Console.WriteLine (ex.Message);
-				    tcs.SetException (ex);
-				}
+                    
+                    foreach (var contact in containerResults.OrderBy (x => x.GivenName)) 
+                    {
+                        if (contact.EmailAddresses.Count () > 0 && contact.GivenName.Length > 0) 
+                        {
+                            var conCard = new ContactCard (UITableViewCellStyle.Default, cellIdentifier);
+                            conCard.nameLabel.Text = contact.GivenName + " " + contact.FamilyName;
+                            conCard.email = contact.EmailAddresses.FirstOrDefault ()?.Value;
+                            if (contact.ImageDataAvailable)
+                                conCard.profileImage.Image = UIImage.LoadFromData (contact.ThumbnailImageData);
+                            else
+                                conCard.profileImage.Image = UIImage.FromBundle ("1481507483_compose.png"); //default image
+                            result.Add (conCard);
 
-            return result.ToList ();
+                         }
+                      }
+
+                   }
+			} catch (Exception ex) {
+				Console.WriteLine ("Exception in GetUserContactsAsync: " + ex.Message);
+			}
+			
+			return result;
 
 		}
 	}
@@ -174,38 +170,25 @@ namespace FavoriteMovies
 
         }
 
-        private Task AddContactToLocalDB (ContactCard cell)
+        private async Task AddContactToLocalDB (ContactCard cell)
         {
 			try {
 				using (var db = new SQLite.SQLiteConnection (MovieService.Database)) 
                 {
-                    
-					var task = Task.Run (() => 
-                    {
-                        // there is a sqllite bug here https://forums.xamarin.com/discussion/52822/sqlite-error-deleting-a-record-no-primary-keydb.Delete<Movie> (movieDetail);
-                        var contact = new Contact ();
-                        contact.Email = cell.email;
-						db.InsertOrReplace (contact, typeof (Contact));
-
-					});
-					task.Wait ();
-                    return Task.CompletedTask;
-
-
+                    // there is a sqllite bug here https://forums.xamarin.com/discussion/52822/sqlite-error-deleting-a-record-no-primary-keydb.Delete<Movie> (movieDetail);
+                    var contact = new Contact ();
+                    contact.Email = cell.email;
+					db.InsertOrReplace (contact, typeof (Contact));
 				}
 			}  catch (Exception e) 
             {
-				Debug.WriteLine (e.Message);
+				Debug.WriteLine ("Exception in AddContactToLocalDB: " + e.Message);
                 using (var conn = new SQLite.SQLiteConnection (MovieService.Database)) 
                 {
-                    var task = Task.Run (() => {
-                        conn.CreateTable<Contact> ();
-                        var contact = new Contact ();
-                        contact.Email = cell.email;
-                        conn.InsertOrReplace (contact, typeof (Contact));
-                    });
-                    task.Wait ();
-                    return Task.CompletedTask;
+                    conn.CreateTable<Contact> ();
+                    var contact = new Contact ();
+                    contact.Email = cell.email;
+                    conn.InsertOrReplace (contact, typeof (Contact));
                 }
 			}
         }

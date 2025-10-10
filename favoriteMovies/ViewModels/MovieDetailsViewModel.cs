@@ -32,7 +32,7 @@ namespace FavoriteMovies.ViewModels
 
             try
             {
-                var imdbUrl = $"http://api.themoviedb.org/3/movie/{movie.Id}/videos?api_key={MovieService._apiKey}";
+                var imdbUrl = $"http://api.themoviedb.org/3/movie/{movie.id}/videos?api_key={MovieService._apiKey}";
                 TrailerId = await MovieService.GetYouTubeMovieId(imdbUrl);
             }
             catch (Exception ex)

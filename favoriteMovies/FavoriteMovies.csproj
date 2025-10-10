@@ -29,6 +29,7 @@
     <PlatformTarget>x86</PlatformTarget>
     <CodesignProvision></CodesignProvision>
     <MtouchExtraArgs>-v -v -v</MtouchExtraArgs>
+    <IPhoneOSVersion>12.0</IPhoneOSVersion>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|iPhone' ">
     <DebugType></DebugType>
@@ -50,6 +51,7 @@
     <MtouchProfiling>false</MtouchProfiling>
     <MtouchSdkVersion></MtouchSdkVersion>
     <CodesignProvision>Movie Friends Distribution Profile</CodesignProvision>
+    <IPhoneOSVersion>12.0</IPhoneOSVersion>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|iPhoneSimulator' ">
     <DebugType></DebugType>
@@ -67,6 +69,7 @@
     <MtouchDebug>true</MtouchDebug>
     <MtouchProfiling>true</MtouchProfiling>
     <MtouchFloat32>true</MtouchFloat32>
+    <IPhoneOSVersion>12.0</IPhoneOSVersion>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|iPhone' ">
     <DebugSymbols>true</DebugSymbols>
@@ -91,6 +94,7 @@
     <CodesignProvision></CodesignProvision>
     <MtouchSdkVersion></MtouchSdkVersion>
     <MtouchExtraArgs>-v -v -v -v</MtouchExtraArgs>
+    <IPhoneOSVersion>12.0</IPhoneOSVersion>
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="System" />
