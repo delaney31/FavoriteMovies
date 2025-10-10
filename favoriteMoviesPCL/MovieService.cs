@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
-using System.IO;
+using System.Globalization;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
@@ -15,15 +15,26 @@ using SQLite;
 
 namespace FavoriteMoviesPCL
 {
-	public static class MovieService
-	{
+        public static class MovieService
+        {
 
-		const string _baseUrl = "https://api.themoviedb.org/3/";
-		const string _pageString = "&page=";
-		//static string _apiKey = "ab41356b33d100ec61e6c098ecc92140";
-		public static string _apiKey = "63ac84758e2d96000620e55b773fc312";
-		static string _sessionId = "";
-		public static ObservableCollection<Movie> MovieList;
+                const string _baseUrl = "https://api.themoviedb.org/3/";
+                const string _pageString = "&page=";
+                //static string _apiKey = "ab41356b33d100ec61e6c098ecc92140";
+                public static string _apiKey = "63ac84758e2d96000620e55b773fc312";
+                public static ObservableCollection<Movie> MovieList;
+
+                static readonly HttpClient HttpClient;
+
+                static MovieService ()
+                {
+                        HttpClient = new HttpClient {
+                                BaseAddress = new Uri (_baseUrl, UriKind.Absolute),
+                                Timeout = TimeSpan.FromSeconds (30)
+                        };
+                        HttpClient.DefaultRequestHeaders.Accept.Clear ();
+                        HttpClient.DefaultRequestHeaders.Accept.Add (new MediaTypeWithQualityHeaderValue ("application/json"));
+                }
 
 
 		public enum MovieType
@@ -48,167 +59,160 @@ namespace FavoriteMoviesPCL
 			}
 		}
 
-		public static async Task<string> GetYouTubeMovieId (string url)
-		{
-			var client = new HttpClient ();
-			try 
-			{
-				HttpResponseMessage result = await client.GetAsync (url, CancellationToken.None);
-				if (result.IsSuccessStatusCode)
-				{
+                public static async Task<string> GetYouTubeMovieId (string url, CancellationToken cancellationToken = default)
+                {
+                        if (string.IsNullOrWhiteSpace (url))
+                                throw new ArgumentException ("Value cannot be null or whitespace.", nameof (url));
 
-					string content = await result.Content.ReadAsStringAsync ();
-					string videoId = ParceVideoId (content).Id.ToString ();
-					//return a ObservableCollection to fill a list of movies
-					return videoId;
+                        try {
+                                var content = await GetResponseContentAsync (url, cancellationToken).ConfigureAwait (false);
+                                if (string.IsNullOrEmpty (content))
+                                        return string.Empty;
 
-				}
-				return "";
-			} 
-			catch (Exception ex) 
-			{
-				//Model Error
-				Debug.WriteLine (ex);
-				return "";
-			}
+                                var response = JObject.Parse (content);
+                                var video = ParseVideoId (response);
+                                return video.Id ?? string.Empty;
+                        } catch (OperationCanceledException) {
+                                throw;
+                        } catch (Exception ex) {
+                                //Model Error
+                                Debug.WriteLine (ex);
+                                return string.Empty;
+                        }
 
-		}
+                }
 
 
-		static MoviePOCO ParceVideoId (string content)
-		{
-			JObject jresponse = JObject.Parse (content);
-			var jarray = jresponse ["results"];
-			var newMovie = new MoviePOCO ();
-			try {
-				foreach (var jObj in jarray) {
+                static MoviePOCO ParseVideoId (JObject jresponse)
+                {
+                        var results = jresponse? ["results"] as JArray;
+                        if (results == null)
+                                return new MoviePOCO ();
 
-					newMovie.Id = jObj ["key"].ToString ();
-					break;
+                        try {
+                                var video = results.OfType<JObject> ().FirstOrDefault ();
+                                return video != null
+                                        ? new MoviePOCO { Id = video.Value<string> ("key") ?? string.Empty }
+                                        : new MoviePOCO ();
+                        } catch (Exception e) {
 
-				}
-			} catch (Exception e) {
+                                Debug.WriteLine (e.Message);
+                                return new MoviePOCO ();
 
-				Debug.WriteLine (e.Message);
+                        }
 
-			}
-			return newMovie;
+                }
 
-		}
-		public static async Task<ObservableCollection<Movie>> GetMoviesAsyncString (MovieType type, int page = 1, string movieId = "")
-		{
-			var client = new HttpClient ();
+                static async Task<string> GetResponseContentAsync (string requestUri, CancellationToken cancellationToken)
+                {
+                        using (var response = await HttpClient.GetAsync (requestUri, cancellationToken).ConfigureAwait (false)) {
+                                if (response.IsSuccessStatusCode)
+                                        return await response.Content.ReadAsStringAsync ().ConfigureAwait (false);
 
-			string Url = "";
+                                Debug.WriteLine ($"Request to '{requestUri}' failed with status code {response.StatusCode}.");
+                                return null;
+                        }
+                }
 
-			switch (type) {
+                static string BuildMovieEndpoint (MovieType type, int page, string movieId)
+                {
+                        var pageQuery = _pageString + page;
 
-			case MovieType.TopRated:
-				Url = _baseUrl + "movie/top_rated?api_key=" + _apiKey + _pageString + page;
-				break;
-			case MovieType.NowPlaying:
-				Url = _baseUrl + "movie/now_playing?api_key=" + _apiKey + _pageString + page;
-				break;
-			case MovieType.Popular:
-				Url = _baseUrl + "movie/popular?api_key=" + _apiKey + _pageString + page;
-				break;
-			case MovieType.Similar:
-				Url = _baseUrl + "movie/" + movieId + "/similar?api_key=" + _apiKey + _pageString + page;
-				break;
-			case MovieType.Upcoming:
-				Url = _baseUrl + "movie/upcoming?api_key=" + _apiKey + "&language=en-US";
-				break;
-			case MovieType.TVLatest:
-				Url = _baseUrl + "tv/airing_today?api_key=" + _apiKey + "&language=en-US";
-				break;
+                        switch (type) {
+                        case MovieType.TopRated:
+                                return $"movie/top_rated?api_key={_apiKey}{pageQuery}";
+                        case MovieType.NowPlaying:
+                                return $"movie/now_playing?api_key={_apiKey}{pageQuery}";
+                        case MovieType.Popular:
+                                return $"movie/popular?api_key={_apiKey}{pageQuery}";
+                        case MovieType.Similar:
+                                if (string.IsNullOrWhiteSpace (movieId))
+                                        return string.Empty;
+                                return $"movie/{movieId}/similar?api_key={_apiKey}{pageQuery}";
+                        case MovieType.Upcoming:
+                                return $"movie/upcoming?api_key={_apiKey}&language=en-US";
+                        case MovieType.TVLatest:
+                                return $"tv/airing_today?api_key={_apiKey}&language=en-US";
+                        default:
+                                return string.Empty;
+                        }
+                }
 
-			}
-			try 
-			{
-				HttpResponseMessage result = await client.GetAsync (Url, CancellationToken.None);
+                static void UpdateTotalPages (MovieType type, JObject jresponse)
+                {
+                        if (jresponse == null)
+                                return;
 
-				if (result.IsSuccessStatusCode) 
-				{
+                        var totalPages = jresponse.Value<int?> ("total_pages");
+                        if (!totalPages.HasValue)
+                                return;
 
-					string content = await result.Content.ReadAsStringAsync ();
-					JObject jresponse = JObject.Parse (content);
-					var jarray = jresponse ["total_pages"];
-					MovieList = GetJsonData (content);
-					//return a ObservableCollection to fill a list of movies
-					return MovieList;
-				
-				}
-			} 
-				catch (Exception ex) 
-			{
-				//Model Error
-				Debug.WriteLine (ex);
+                        switch (type) {
+                        case MovieType.TopRated:
+                                TotalPagesTopRated = totalPages.Value;
+                                break;
+                        case MovieType.NowPlaying:
+                                TotalPagesNowPlaying = totalPages.Value;
+                                break;
+                        case MovieType.Popular:
+                                TotalPagesPopular = totalPages.Value;
+                                break;
+                        }
+                }
+                public static async Task<ObservableCollection<Movie>> GetMoviesAsyncString (MovieType type, int page = 1, string movieId = "", CancellationToken cancellationToken = default)
+                {
+                        var requestUri = BuildMovieEndpoint (type, page, movieId);
+                        if (string.IsNullOrEmpty (requestUri))
+                                return new ObservableCollection<Movie> ();
 
-			}
-			//Server Error or no internet connection.
-			return new ObservableCollection<Movie> ();
-		}
+                        try {
+                                var content = await GetResponseContentAsync (requestUri, cancellationToken).ConfigureAwait (false);
+                                if (string.IsNullOrEmpty (content))
+                                        return new ObservableCollection<Movie> ();
+
+                                var jresponse = JObject.Parse (content);
+                                UpdateTotalPages (type, jresponse);
+                                MovieList = GetJsonData (jresponse);
+                                return MovieList ?? new ObservableCollection<Movie> ();
+                        } catch (OperationCanceledException) {
+                                throw;
+                        } catch (Exception ex) {
+                                //Model Error
+                                Debug.WriteLine (ex);
+                                return new ObservableCollection<Movie> ();
+
+                        }
+                }
 		//GET movies from service
-		public static async Task<ObservableCollection<Movie>> GetMoviesAsync (MovieType type, int page = 1, int movieId = 0)
-		{
-			var client = new HttpClient ();
+                public static async Task<ObservableCollection<Movie>> GetMoviesAsync (MovieType type, int page = 1, int movieId = 0, CancellationToken cancellationToken = default)
+                {
+                        var movieIdValue = movieId > 0 ? movieId.ToString (CultureInfo.InvariantCulture) : string.Empty;
+                        var requestUri = BuildMovieEndpoint (type, page, movieIdValue);
+                        if (string.IsNullOrEmpty (requestUri))
+                                return new ObservableCollection<Movie> ();
 
-			string Url = "";
+                        try {
+                                var content = await GetResponseContentAsync (requestUri, cancellationToken).ConfigureAwait (false);
+                                if (string.IsNullOrEmpty (content))
+                                        return new ObservableCollection<Movie> ();
 
-			switch (type) 
-			{
-
-			case MovieType.TopRated:
-				Url = _baseUrl + "movie/top_rated?api_key=" + _apiKey + _pageString + page;
-				break;
-			case MovieType.NowPlaying:
-				Url = _baseUrl + "movie/now_playing?api_key=" + _apiKey + _pageString + page;
-				break;
-			case MovieType.Popular:
-				Url = _baseUrl + "movie/popular?api_key=" + _apiKey + _pageString + page;
-				break;
-			case MovieType.Similar:
-				Url = _baseUrl + "movie/" + movieId + "/similar?api_key=" + _apiKey + _pageString + page;
-				break;
-			case MovieType.Upcoming:
-				Url = _baseUrl + "movie/upcoming?api_key=" + _apiKey + "&language=en-US";
-				break;
-			case MovieType.TVLatest:
-				Url = _baseUrl + "tv/airing_today?api_key=" + _apiKey + "&language=en-US";
-				break;
-
-			}
-			try {
-				HttpResponseMessage result = await client.GetAsync (Url, CancellationToken.None);
-
-				if (result.IsSuccessStatusCode) 
-				{
-
-					string content = await result.Content.ReadAsStringAsync ();
-					JObject jresponse = JObject.Parse (content);
-					var jarray = jresponse ["total_pages"];
-					MovieList = GetJsonData (content);
-					AddListToLocalDB (MovieList, type);
-					//return a ObservableCollection to fill a list of movies
-					return MovieList;
-
-
-				}
-			} catch (WebException we) 
-			{
-				//Server Error or no internet connection.
-				Debug.WriteLine (we);
-				return GetListFromLocalDB (GetCustomIdFromType(type.ToString()));
-
-			} 
-			catch (Exception ex) {
-				//Model Error
-				Debug.WriteLine (ex);
-				return GetListFromLocalDB (GetCustomIdFromType (type.ToString ()));
-			}
-
-			return new ObservableCollection<Movie> ();;
-		}
+                                var jresponse = JObject.Parse (content);
+                                UpdateTotalPages (type, jresponse);
+                                MovieList = GetJsonData (jresponse);
+                                AddListToLocalDB (MovieList, type);
+                                return MovieList ?? new ObservableCollection<Movie> ();
+                        } catch (OperationCanceledException) {
+                                throw;
+                        } catch (WebException we) {
+                                //Server Error or no internet connection.
+                                Debug.WriteLine (we);
+                                return GetListFromLocalDB (GetCustomIdFromType (type.ToString ()));
+                        } catch (Exception ex) {
+                                //Model Error
+                                Debug.WriteLine (ex);
+                                return GetListFromLocalDB (GetCustomIdFromType (type.ToString ()));
+                        }
+                }
 
 		static string GetCustomIdFromType (string type)
 		{
@@ -330,150 +334,140 @@ namespace FavoriteMoviesPCL
 			}
 		}
 
-		public static async Task<ObservableCollection<CastCrew>> MovieCreditsAsync (string query)
-		{
-			var client = new HttpClient ();
-			string Url = "https://api.themoviedb.org/3/movie/" + query + "/credits?api_key=" + _apiKey;
-			try 
-			{
-				HttpResponseMessage result = await client.GetAsync (Url, CancellationToken.None);
-				if (result.IsSuccessStatusCode) 
-				{
-					
-						string content = await result.Content.ReadAsStringAsync ();
-						JObject jresponse = JObject.Parse (content);
-						var jarray = jresponse ["cast"];
-						var castCrew = GetCastJsonData (content);
-						//return a ObservableCollection to fill a list of movies
-						return castCrew;
+                public static async Task<ObservableCollection<CastCrew>> MovieCreditsAsync (string query, CancellationToken cancellationToken = default)
+                {
+                        if (string.IsNullOrWhiteSpace (query))
+                                return new ObservableCollection<CastCrew> ();
 
-					
-				}
-			}
-			catch (Exception ex) 
-			{
-				//Model Error
-				Debug.WriteLine (ex);
+                        try {
+                                var content = await GetResponseContentAsync ($"movie/{query}/credits?api_key={_apiKey}", cancellationToken).ConfigureAwait (false);
+                                if (string.IsNullOrEmpty (content))
+                                        return new ObservableCollection<CastCrew> ();
 
-			}
-			//Server Error or no internet connection.
-			return new ObservableCollection<CastCrew>();
+                                var jresponse = JObject.Parse (content);
+                                return GetCastJsonData (jresponse);
+                        } catch (OperationCanceledException) {
+                                throw;
+                        } catch (Exception ex) {
+                                //Model Error
+                                Debug.WriteLine (ex);
+                                return new ObservableCollection<CastCrew> ();
 
-		}
-		public static async Task<ObservableCollection<Movie>> MovieSearch (string query)
-		{
-			var client = new HttpClient ();
-			string Url = "https://api.themoviedb.org/3/search/movie?api_key=" + _apiKey + "&language=en-US&query=" + query;
-			try 
-			{
-				HttpResponseMessage result = await client.GetAsync (Url, CancellationToken.None);
-				if (result.IsSuccessStatusCode) 
-				{
-				
-					string content = await result.Content.ReadAsStringAsync ();
-					JObject jresponse = JObject.Parse (content);
-					var jarray = jresponse ["total_pages"];
-					MovieList = GetJsonData (content);
-					//return a ObservableCollection to fill a list of movies
-					return MovieList;
+                        }
+                }
+                public static async Task<ObservableCollection<Movie>> MovieSearch (string query, CancellationToken cancellationToken = default)
+                {
+                        if (string.IsNullOrWhiteSpace (query))
+                                return new ObservableCollection<Movie> ();
 
-				
-				}
-			} 
-			catch (Exception ex) 
-			{
-				//Model Error
-				Debug.WriteLine (ex);
+                        try {
+                                var encodedQuery = Uri.EscapeDataString (query);
+                                var content = await GetResponseContentAsync ($"search/movie?api_key={_apiKey}&language=en-US&query={encodedQuery}", cancellationToken).ConfigureAwait (false);
+                                if (string.IsNullOrEmpty (content))
+                                        return new ObservableCollection<Movie> ();
 
-			}
-			//Server Error or no internet connection.
-			return new ObservableCollection<Movie>();
-		}
+                                var jresponse = JObject.Parse (content);
+                                MovieList = GetJsonData (jresponse);
+                                return MovieList ?? new ObservableCollection<Movie> ();
+                        } catch (OperationCanceledException) {
+                                throw;
+                        } catch (Exception ex) {
+                                //Model Error
+                                Debug.WriteLine (ex);
+                                return new ObservableCollection<Movie> ();
 
-		static ObservableCollection<CastCrew> GetCastJsonData (string content)
-		{
+                        }
+                }
 
-			JObject jresponse = JObject.Parse (content);
-			var jarray = jresponse ["cast"];
+                static ObservableCollection<CastCrew> GetCastJsonData (JObject jresponse)
+                {
 
-			var castList = new ObservableCollection<CastCrew> ();
-			try {
-				foreach (var jObj in jarray) {
-					var castCrew = new CastCrew ();
-					castCrew.Character = (string)jObj ["character"];
-					castCrew.ProfilePath = (jObj ["profile_path"] == null) ? "" : (string)jObj ["profile_path"];
-					castCrew.Actor = (string)jObj ["name"];
-				
-					castList.Add (castCrew);
-				}
-			} catch (Exception e) {
+                        var results = jresponse? ["cast"] as JArray;
 
-				Debug.WriteLine (e.Message);
+                        var castList = new ObservableCollection<CastCrew> ();
+                        if (results == null)
+                                return castList;
 
-			}
-			return castList;
+                        try {
+                                foreach (var jObj in results.OfType<JObject> ()) {
+                                        var castCrew = new CastCrew ();
+                                        castCrew.Character = jObj.Value<string> ("character");
+                                        castCrew.ProfilePath = jObj.Value<string> ("profile_path") ?? string.Empty;
+                                        castCrew.Actor = jObj.Value<string> ("name");
+
+                                        castList.Add (castCrew);
+                                }
+                        } catch (Exception e) {
+
+                                Debug.WriteLine (e.Message);
+
+                        }
+                        return castList;
 
 
-		}
+                }
 
-		static ObservableCollection<Movie> GetJsonData (string content)
-		{
+                static ObservableCollection<Movie> GetJsonData (JObject jresponse)
+                {
+                        var results = jresponse? ["results"] as JArray;
+                        var movieList = new ObservableCollection<Movie> ();
+                        if (results == null)
+                                return movieList;
 
-			JObject jresponse = JObject.Parse (content);
-			var jarray = jresponse ["results"];
+                        try {
+                                foreach (var jObj in results.OfType<JObject> ()) {
+                                        var newMovie = new Movie {
+                                                name = jObj.Value<string> ("title"),
+                                                PosterPath = jObj.Value<string> ("poster_path"),
+                                                HighResPosterPath = jObj.Value<string> ("poster_path"),
+                                                OriginalId = jObj.Value<int?> ("id") ?? 0,
+                                                id = null,
+                                                Overview = jObj.Value<string> ("overview"),
+                                                VoteCount = jObj.Value<double?> ("vote_count") ?? 0,
+                                                ReleaseDate = jObj.Value<string> ("release_date"),
+                                                VoteAverage = Convert.ToSingle (jObj.Value<double?> ("vote_average") ?? 0),
+                                                Adult = jObj.Value<bool?> ("adult") ?? false,
+                                                BackdropPath = jObj.Value<string> ("backdrop_path")
+                                        };
+                                        movieList.Add (newMovie);
+                                }
+                        } catch (Exception e) {
 
-			var movieList = new ObservableCollection<Movie> ();
-			try {
-				foreach (var jObj in jarray) {
-					var newMovie = new Movie ();
-					newMovie.name = (string)jObj ["title"];
-					newMovie.PosterPath =(string) jObj ["poster_path"];//(jObj ["poster_path"] == null) ? "" : (string)jObj ["poster_path"];
-					newMovie.HighResPosterPath = (string)jObj ["poster_path"];// (jObj ["poster_path"] == null) ? "" : (string)jObj ["poster_path"];
-					newMovie.OriginalId= (int)jObj ["id"];
-					newMovie.id = null;
-					newMovie.Overview = (string)jObj ["overview"];
-					newMovie.VoteCount = (double)jObj ["vote_count"];
-					newMovie.ReleaseDate = (string)jObj ["release_date"];
-					newMovie.VoteAverage = (float)jObj ["vote_average"];
-					newMovie.Adult = (bool)jObj ["adult"];//(jObj ["adult"] == null) ? false : (bool)jObj ["adult"];
-					newMovie.BackdropPath = (string)jObj ["backdrop_path"];//(jObj ["backdrop_path"] == null) ? "" : (string)jObj ["backdrop_path"];
-					//newMovie.genre_ids = jObj ["genre_ids"].ToObject<List<string>>();
-					movieList.Add (newMovie);
-				}
-			} catch (Exception e) {
+                                Debug.WriteLine (e.Message);
 
-				Debug.WriteLine (e.Message);
-
-			}
-			return movieList;
+                        }
+                        return movieList;
 
 
-		}
+                }
 
-		//POST Example:
-		public static async Task<bool> PostFavoriteMovieAsync (Movie movie, string sessionId)
-		{
-			try {
-				var client = new HttpClient ();
-				//_sessionId = string with the movie database session.
-				string tokenUrl = _baseUrl + "account/id/favorite?" + _apiKey + sessionId;
-				string postBody = JsonConvert.SerializeObject (new Favorite {
-					favorite = !movie.Favorite,
-					media_id = (int)movie.id
-				});
+                //POST Example:
+                public static async Task<bool> PostFavoriteMovieAsync (Movie movie, string sessionId, CancellationToken cancellationToken = default)
+                {
+                        if (movie == null)
+                                throw new ArgumentNullException (nameof (movie));
+                        if (string.IsNullOrWhiteSpace (sessionId))
+                                throw new ArgumentException ("Value cannot be null or whitespace.", nameof (sessionId));
 
-				client.DefaultRequestHeaders.Accept.Add (new MediaTypeWithQualityHeaderValue ("application/json"));
-				HttpResponseMessage response = await client.PostAsync (tokenUrl,
-					new StringContent (postBody, Encoding.UTF8, "application/json"));
+                        try {
+                                var requestUri = $"account/id/favorite?api_key={_apiKey}&session_id={sessionId}";
+                                var postBody = JsonConvert.SerializeObject (new Favorite {
+                                        favorite = !movie.Favorite,
+                                        media_id = movie.id ?? movie.OriginalId
+                                });
 
-				if (response.IsSuccessStatusCode)
-					return true;
-				else
-					return false;
-			} catch (Exception ex) {
-				Debug.WriteLine (ex.Message);
-				return false;
-			}
-		}
+                                using (var request = new HttpRequestMessage (HttpMethod.Post, requestUri)) {
+                                        request.Content = new StringContent (postBody, Encoding.UTF8, "application/json");
+                                        using (var response = await HttpClient.SendAsync (request, cancellationToken).ConfigureAwait (false)) {
+                                                return response.IsSuccessStatusCode;
+                                        }
+                                }
+                        } catch (OperationCanceledException) {
+                                throw;
+                        } catch (Exception ex) {
+                                Debug.WriteLine (ex.Message);
+                                return false;
+                        }
+                }
 	}
 }
