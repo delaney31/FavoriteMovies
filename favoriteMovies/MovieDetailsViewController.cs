@@ -8,6 +8,7 @@ using System.Text;
 using System.Threading.Tasks;
 using CoreGraphics;
 using FavoriteMoviesPCL;
+using FavoriteMovies.ViewModels;
 using Foundation;
 using UIKit;
 
@@ -28,7 +29,8 @@ namespace FavoriteMovies
 		static string _youTubeURl = "https://www.youtube.com/embed/";
 		string _embededMoveId;
 
-		Movie movieDetail;
+                Movie movieDetail;
+                MovieDetailsViewModel viewModel;
 		UIImageView moviePlay;
 		UIWebView webView ;
 		static UIScrollView scrollView = new UIScrollView ();
@@ -45,8 +47,9 @@ namespace FavoriteMovies
 		}
 		public MovieDetailsViewController (Movie movie) : base ("MovieDetailsViewController", null)
 		{
-			movieDetail = movie;
-			Initialize ();
+                        movieDetail = movie;
+                        viewModel = new MovieDetailsViewModel (movie);
+                        Initialize ();
 			moviePlay = new UIImageView ();
 			moviePlay.Image = UIImage.FromBundle ("download.png");
 
@@ -55,21 +58,32 @@ namespace FavoriteMovies
 
 		void Initialize ()
 		{
-			var imDbUrl = "http://api.themoviedb.org/3/movie/" + movieDetail.Id + "/videos?api_key=" + MovieService._apiKey;
-			var youtubeMovieId = "";
+			if (movieDetail != null && viewModel == null)
+			{
+				viewModel = new MovieDetailsViewModel (movieDetail);
+			}
 
-			var UTubeMovidId = Task.Run (async () => {
-				youtubeMovieId = await MovieService.GetYouTubeMovieId (imDbUrl);
+			if (viewModel == null)
+			{
+				return;
+			}
 
+			var loadTask = Task.Run (async () => {
+				await viewModel.InitializeAsync ();
 			});
-			UTubeMovidId.Wait ();
+			loadTask.Wait ();
 
-			_embededMoveId = youtubeMovieId;
-
+			_embededMoveId = viewModel.TrailerId;
 		}
 		public override void ViewDidLoad ()
 		{
 			base.ViewDidLoad ();
+
+			if (movieDetail == null && viewModel != null)
+				movieDetail = viewModel.Movie;
+
+			if (movieDetail == null)
+				return;
 
 			scrollView.Frame = new CGRect () { X = View.Frame.X, Y = View.Frame.Y, Width = View.Frame.Width, Height = View.Frame.Height };
 

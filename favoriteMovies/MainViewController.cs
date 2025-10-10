@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using System.Web;
 using CoreGraphics;
 using FavoriteMoviesPCL;
+using FavoriteMovies.ViewModels;
 using Foundation;
 using SidebarNavigation;
 using SQLite;
@@ -53,11 +54,12 @@ namespace FavoriteMovies
 		static string LatestMovies = "Latest Movies";
 		const int LabelZPosition = 1;
 		const int SectionCount = 1;
-		ObservableCollection<Movie> topRated= new ObservableCollection<Movie>();
-		ObservableCollection<Movie> nowPlaying= new ObservableCollection<Movie> ();
-		ObservableCollection<Movie> popular= new ObservableCollection<Movie> ();
-		ObservableCollection<CustomList> customLists= new ObservableCollection<CustomList> ();
-		ObservableCollection<Movie> MovieLatest= new ObservableCollection<Movie> ();
+                ObservableCollection<Movie> topRated;
+                ObservableCollection<Movie> nowPlaying;
+                ObservableCollection<Movie> popular;
+                ObservableCollection<CustomList> customLists;
+                ObservableCollection<Movie> MovieLatest;
+                readonly MainViewModel viewModel;
 		UICollectionViewFlowLayout flowLayout;
 		BaseCollectionViewController nowPlayingController;
 		static PopularCollectionViewController popularController;
@@ -76,21 +78,28 @@ namespace FavoriteMovies
 		static UIImageView velvetRopes = new UIImageView ();
         const string intersitialId = "ca-app-pub-3328591715743369/1886502337";
 		//	public MainViewController (ObservableCollection<Movie> topRated, ObservableCollection<Movie> nowPlaying, ObservableCollection<Movie> popular, ObservableCollection<Movie> movieLatest,int page)
-		public MainViewController ()
-		{
+                public MainViewController ()
+                {
 
-			flowLayout = new UICollectionViewFlowLayout () {
-				HeaderReferenceSize = HeaderReferenceSize,
-				ScrollDirection = UICollectionViewScrollDirection.Horizontal,
-				MinimumInteritemSpacing = MinimumInteritemSpacing, // minimum spacing between cells
-				MinimumLineSpacing = MinimumLineSpacing, // minimum spacing between rows if ScrollDirection is Vertical or between columns if Horizontal
-				ItemSize = ColorExtensions.CurrentSize,
-				//SectionInset = new UIEdgeInsets (80, -40, 97, 127)
-			};
+                        viewModel = new MainViewModel ();
+                        topRated = viewModel.TopRated;
+                        nowPlaying = viewModel.NowPlaying;
+                        popular = viewModel.Popular;
+                        MovieLatest = viewModel.Latest;
+                        customLists = viewModel.CustomLists;
+
+                        flowLayout = new UICollectionViewFlowLayout () {
+                                HeaderReferenceSize = HeaderReferenceSize,
+                                ScrollDirection = UICollectionViewScrollDirection.Horizontal,
+                                MinimumInteritemSpacing = MinimumInteritemSpacing, // minimum spacing between cells
+                                MinimumLineSpacing = MinimumLineSpacing, // minimum spacing between rows if ScrollDirection is Vertical or between columns if Horizontal
+                                ItemSize = ColorExtensions.CurrentSize,
+                                //SectionInset = new UIEdgeInsets (80, -40, 97, 127)
+                        };
             if (ColorExtensions.CurrentUser.suggestmovies)
                     GetCollectionData ();
 
-		}
+                }
 
 		public override bool ShouldAutorotate ()
 		{
@@ -292,7 +301,7 @@ namespace FavoriteMovies
 			View.DeleteAllSubviews (scrollView);
 			//horizontalLine.Frame = new CGRect ();
 			velvetRopes.Frame = new CGRect ();
-			customLists = GetCustomLists ();
+                                ReloadCustomLists ();
 			if (customLists.Count == 0 && ColorExtensions.CurrentUser.suggestmovies ) 
 			{
 				CreateSuggestedListNoCustom ();
@@ -465,31 +474,22 @@ namespace FavoriteMovies
 
 		 void GetCollectionData ()
 		{
-			int Page;
-
 			if (topRated.Count > 0)
 				return;
-			try 
+			try
 			{
 
 				var watch = System.Diagnostics.Stopwatch.StartNew ();
-				Page = RandomNumber (1, 5);
 
-				 Task.Run (async() => {
-					 topRated = await  MovieService.GetMoviesAsync (MovieService.MovieType.TopRated, Page);
-					 nowPlaying =  await MovieService.GetMoviesAsync (MovieService.MovieType.NowPlaying, Page);
-					 popular =  await MovieService.GetMoviesAsync (MovieService.MovieType.Popular, Page);
-					 MovieLatest =  await MovieService.GetMoviesAsync (MovieService.MovieType.Upcoming, Page);
-					//TVNowAiring = await MovieService.GetMoviesAsync (MovieService.MovieType.TVLatest, Page);
-				}).Wait();
-				//TimeSpan ts = TimeSpan.FromMilliseconds (4000);
+				 Task.Run (async () => {
+					 await viewModel.LoadMoviesAsync ();
+				}).Wait ();
+
 				watch.Stop ();
 				Console.WriteLine ("GetCollectionData Method took " + watch.ElapsedMilliseconds / 1000.0 + "seconds");
 
-				//	Console.WriteLine ("The timeout interval elapsed in GetCollectionData.");
 			} catch (Exception e) {
 				Debug.WriteLine (e.Message);
-				//	throw;
 
 			}
 		}
@@ -499,7 +499,7 @@ namespace FavoriteMovies
 				//scrollView.PagingEnabled = true;
 				var watch = System.Diagnostics.Stopwatch.StartNew ();
 				scrollView.Frame = new CGRect () { X = View.Frame.X, Y = View.Frame.Y, Width = View.Frame.Width, Height = View.Frame.Height };
-				customLists = GetCustomLists ();
+                            ReloadCustomLists ();
 
 				customLabels = new UILabel [customLists.Count];
 				customControllers = new FavoritesViewController [customLists.Count];
@@ -574,7 +574,7 @@ namespace FavoriteMovies
 
 		void UpdateCustomViews ()
 		{
-			customLists = GetCustomLists ();
+                    ReloadCustomLists ();
 			if (NewCustomListToRefresh == 1 || NewCustomListToRefresh == -1) {
 				for (var cnt = 0; cnt < customLists.Count; cnt++) {
 					UpdateCustomListMovies (cnt);
@@ -661,41 +661,19 @@ namespace FavoriteMovies
 
 
 
-		public static ObservableCollection<CustomList> GetCustomLists ()
-		{
-			
+                void ReloadCustomLists ()
+                {
+                        Task.Run (async () => {
+                                await viewModel.LoadCustomListsAsync ();
+                        }).Wait ();
+                }
 
-			var result = new ObservableCollection<CustomList> ();
-			try {
-					using (var db = new SQLiteConnection (MovieService.Database)) 
-					{
-						//Task.Run (async () => 
-						//{
-							
-						// there is a sqllite bug here https://forums.xamarin.com/discussion/52822/sqlite-error-deleting-a-record-no-primary-keydb.Delete<Movie> (movieDetail);
-						var query = db.Query<CustomList> ("SELECT * FROM [CustomList] WHERE [custom] = 1 ORDER BY [Order]");
-						//var query = db.Table<CustomList> ();
-						foreach (var list in query) 
-						{
-							var item = new CustomList ();
-							item.id = list.id;
-							item.name = list.name;
-							item.cloudId = list.cloudId;
-							item.custom = list.custom;
-							result.Add (item);
-						}
-								
+                public static ObservableCollection<CustomList> GetCustomLists ()
+                {
 
-						//}).Wait();
 
-					}
-				} catch (SQLiteException e) 
-				{
-					Debug.WriteLine (e.Message);
-					//throw;
-				}
-			return result;
-		}
+                        return MainViewModel.LoadCustomListsFromDatabase (() => new SQLiteConnection (MovieService.Database));
+                }
 		public override void ViewWillDisappear (bool animated)
 		{
 			base.ViewWillDisappear (animated);
